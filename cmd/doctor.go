@@ -32,6 +32,7 @@ func newDoctorCommand(env *commandEnv, root *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Cluster, "cluster", "", "ECS cluster ARN/name for exec readiness checks")
 	cmd.Flags().StringVar(&flags.Service, "service", "", "ECS service ARN/name for exec readiness checks")
 	cmd.Flags().StringVar(&flags.Task, "task", "", "ECS task ARN/id for exec readiness checks")
+	cmd.Flags().StringVar(&flags.Instance, "instance", "", "EC2 instance ID for Session Manager readiness checks")
 
 	return cmd
 }

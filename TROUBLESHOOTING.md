@@ -99,6 +99,28 @@ aws ecs update-service \
 
 Also make sure the task role and execution environment support SSM messaging.
 
+## `This EC2 instance is not ready for Session Manager`
+
+Check that:
+
+- the instance is running
+- SSM Agent is installed and healthy
+- the instance IAM role allows Session Manager
+- the instance appears in Systems Manager as a managed node
+
+You can verify with:
+
+```bash
+awscan doctor --profile <profile> --region <region> --instance <instance-id>
+```
+
+and:
+
+```bash
+aws ssm describe-instance-information \
+  --filters Key=InstanceIds,Values=<instance-id>
+```
+
 ## Required IAM permissions
 
 Common permissions for the MVP:
@@ -116,6 +138,12 @@ Common permissions for the MVP:
 - `ssmmessages:CreateDataChannel`
 - `ssmmessages:OpenControlChannel`
 - `ssmmessages:OpenDataChannel`
+
+For EC2 Session Manager workflows:
+
+- `ec2:DescribeInstances`
+- `ssm:DescribeInstanceInformation`
+- `ssm:StartSession`
 
 For future logs support:
 

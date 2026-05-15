@@ -11,6 +11,7 @@ import (
 	internalaws "github.com/anupgiri/awscan/internal/aws"
 	appconfig "github.com/anupgiri/awscan/internal/config"
 	internalexec "github.com/anupgiri/awscan/internal/exec"
+	"github.com/anupgiri/awscan/internal/tui"
 )
 
 type commandEnv struct {
@@ -67,10 +68,64 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 
 	cmd.AddCommand(newDoctorCommand(env, flags))
 	cmd.AddCommand(newECSCommand(env, flags))
+	cmd.AddCommand(newEC2Command(env, flags))
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return runECSShell(cmd.Context(), env, flags, ecsShellFlags{})
+		profile := flags.profile
+		region := flags.region
+
+		selectedProfile, selectedRegion, err := resolveProfileAndRegionInteractively(cmd.Context(), env, profile, region)
+		if err != nil {
+			return err
+		}
+		flags.profile = selectedProfile
+		flags.region = selectedRegion
+
+		target, err := selectDefaultShellTarget(cmd.Context(), selectedProfile, selectedRegion)
+		if err != nil {
+			return err
+		}
+
+		switch target {
+		case "ecs":
+			return runECSShell(cmd.Context(), env, flags, ecsShellFlags{})
+		case "ec2":
+			return runEC2Shell(cmd.Context(), env, flags, ec2ShellFlags{})
+		default:
+			return fmt.Errorf("unsupported shell target %q", target)
+		}
 	}
 
 	return cmd
+}
+
+func selectDefaultShellTarget(ctx context.Context, profile, region string) (string, error) {
+	output, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
+		Title: "awscan",
+		State: tui.WorkflowState{
+			Profile: profile,
+			Region:  region,
+		},
+		Steps: []tui.Step{{
+			Key:   "command",
+			Title: "Select service",
+			Options: []tui.Option{
+				{
+					Label:   "ECS",
+					Details: "Open a shell into a running ECS container using ECS Exec",
+					Value:   "ecs",
+				},
+				{
+					Label:   "EC2",
+					Details: "Open a shell into a running EC2 instance using Session Manager",
+					Value:   "ec2",
+				},
+			},
+		}},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return output.State.Command, nil
 }

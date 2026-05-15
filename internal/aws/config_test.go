@@ -7,8 +7,6 @@ import (
 )
 
 func TestResolveProfileNamePrecedence(t *testing.T) {
-	t.Parallel()
-
 	t.Setenv("AWS_PROFILE", "env")
 
 	resolver := &ConfigResolver{
@@ -22,8 +20,6 @@ func TestResolveProfileNamePrecedence(t *testing.T) {
 }
 
 func TestResolveRegionPrecedence(t *testing.T) {
-	t.Parallel()
-
 	t.Setenv("AWS_REGION", "us-west-2")
 
 	resolver := &ConfigResolver{

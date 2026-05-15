@@ -9,6 +9,7 @@ import (
 
 	internalaws "github.com/anupgiri/awscan/internal/aws"
 	internalexec "github.com/anupgiri/awscan/internal/exec"
+	ec2provider "github.com/anupgiri/awscan/internal/providers/ec2"
 	ecsprovider "github.com/anupgiri/awscan/internal/providers/ecs"
 )
 
@@ -36,6 +37,7 @@ type Options struct {
 	Cluster string
 	Service string
 	Task    string
+	Instance string
 }
 
 type Doctor struct {
@@ -89,9 +91,9 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 	clusters, err := ecsProvider.ListClusters(ctx)
 	if err != nil {
 		report.Add("ECS ListClusters", StatusFail, "AWS credentials are valid, but ECS ListClusters failed. Check region or ecs:ListClusters permission.")
-		return report, nil
+	} else {
+		report.Add("ECS ListClusters", StatusPass, fmt.Sprintf("%d cluster(s) visible", len(clusters)))
 	}
-	report.Add("ECS ListClusters", StatusPass, fmt.Sprintf("%d cluster(s) visible", len(clusters)))
 
 	if opts.Cluster != "" && opts.Service != "" && opts.Task != "" {
 		readiness, err := ecsProvider.CheckExecReadiness(ctx, opts.Cluster, opts.Service, opts.Task)
@@ -105,6 +107,22 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 				details = strings.Join(readiness.Warnings, " ")
 			}
 			report.Add("ECS Exec readiness", status, details)
+		}
+	}
+
+	if opts.Instance != "" {
+		ec2Provider := ec2provider.New(runtime.Config, d.Runner)
+		readiness, err := ec2Provider.CheckSessionReadiness(ctx, opts.Instance)
+		if err != nil {
+			report.Add("EC2 Session Manager readiness", StatusFail, err.Error())
+		} else {
+			status := StatusPass
+			details := "Instance is ready for Session Manager."
+			if !readiness.ManagedBySSM || strings.ToLower(readiness.PingStatus) != "online" {
+				status = StatusWarn
+				details = firstNonEmpty(strings.Join(readiness.Warnings, " "), "Instance is not fully ready for Session Manager.")
+			}
+			report.Add("EC2 Session Manager readiness", status, details)
 		}
 	}
 

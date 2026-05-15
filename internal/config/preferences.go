@@ -9,12 +9,17 @@ type Preferences struct {
 
 type RecentPreferences struct {
 	ECS ECSRecentPreferences `yaml:"ecs,omitempty"`
+	EC2 EC2RecentPreferences `yaml:"ec2,omitempty"`
 }
 
 type ECSRecentPreferences struct {
 	Cluster   string `yaml:"cluster,omitempty"`
 	Service   string `yaml:"service,omitempty"`
 	Container string `yaml:"container,omitempty"`
+}
+
+type EC2RecentPreferences struct {
+	InstanceID string `yaml:"instance_id,omitempty"`
 }
 
 func DefaultPreferences() *Preferences {

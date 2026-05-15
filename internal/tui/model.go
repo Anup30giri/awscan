@@ -42,6 +42,7 @@ type WorkflowState struct {
 	Cluster   string
 	Service   string
 	Task      string
+	Instance  string
 	Container string
 	Command   string
 }
@@ -222,8 +223,13 @@ func renderStatus(state WorkflowState) string {
 	parts := []string{
 		renderTag("profile", emptyFallback(state.Profile)),
 		renderTag("region", emptyFallback(state.Region)),
-		renderTag("cluster", emptyFallback(state.Cluster)),
-		renderTag("service", emptyFallback(state.Service)),
+	}
+	if state.Cluster != "" || state.Service != "" {
+		parts = append(parts, renderTag("cluster", emptyFallback(state.Cluster)))
+		parts = append(parts, renderTag("service", emptyFallback(state.Service)))
+	}
+	if state.Instance != "" {
+		parts = append(parts, renderTag("instance", emptyFallback(state.Instance)))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
@@ -258,6 +264,8 @@ func (m *model) applySelection(option Option) {
 		m.state.Task = option.Value
 	case "container":
 		m.state.Container = option.Value
+	case "instance":
+		m.state.Instance = option.Value
 	case "command":
 		m.state.Command = option.Value
 	}

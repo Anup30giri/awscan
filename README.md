@@ -6,6 +6,7 @@ The MVP focuses on:
 
 - `awscan doctor`
 - `awscan ecs shell`
+- `awscan ec2 shell`
 
 It is designed so ECS is first-class today, with clean seams for future EC2, EKS, logs, SSM, and port-forwarding workflows.
 
@@ -59,6 +60,22 @@ Or explicitly:
 awscan ecs shell
 ```
 
+Open an interactive EC2 Session Manager shell workflow:
+
+```bash
+awscan ec2 shell
+```
+
+Run EC2 shell directly with flags:
+
+```bash
+awscan ec2 shell \
+  --profile default \
+  --region ap-south-1 \
+  --instance i-0123456789abcdef0 \
+  --command /bin/bash
+```
+
 Run with direct targeting flags:
 
 ```bash
@@ -76,6 +93,15 @@ Run diagnostics:
 
 ```bash
 awscan doctor
+```
+
+Run EC2-specific preflight diagnostics:
+
+```bash
+awscan doctor \
+  --profile default \
+  --region ap-south-1 \
+  --instance i-0123456789abcdef0
 ```
 
 Doctor can also preflight a known target:
@@ -107,8 +133,11 @@ recent:
     cluster: arn:aws:ecs:ap-south-1:123456789012:cluster/prod
     service: arn:aws:ecs:ap-south-1:123456789012:service/prod/api
     container: app
+  ec2:
+    instance_id: i-0123456789abcdef0
 default_shells:
   app: /bin/sh
+  i-0123456789abcdef0: /bin/bash
 ```
 
 ## Credential behavior
@@ -128,6 +157,7 @@ If a profile includes `login_session`, `awscan` does not rely on the SDK to inte
 - `cmd/`: Cobra commands
 - `internal/aws/`: profile parsing, credential loading, caller identity, region handling
 - `internal/providers/ecs/`: ECS listing, readiness checks, exec handoff
+- `internal/providers/ec2/`: EC2 discovery, Session Manager readiness checks, shell handoff
 - `internal/tui/`: Bubble Tea workflow UI
 - `internal/diagnostics/`: `doctor` checks and output
 - `internal/config/`: local preference file management
