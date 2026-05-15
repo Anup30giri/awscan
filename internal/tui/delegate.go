@@ -11,8 +11,8 @@ import (
 
 type optionDelegate struct{}
 
-func (d optionDelegate) Height() int  { return 2 }
-func (d optionDelegate) Spacing() int { return 1 }
+func (d optionDelegate) Height() int                             { return 2 }
+func (d optionDelegate) Spacing() int                            { return 1 }
 func (d optionDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
 func (d optionDelegate) Render(w io.Writer, model list.Model, index int, item list.Item) {

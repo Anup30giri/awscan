@@ -121,6 +121,40 @@ aws ssm describe-instance-information \
   --filters Key=InstanceIds,Values=<instance-id>
 ```
 
+## ECS logs show no stream
+
+Current implementation resolves `awslogs` targets from task definition.
+If logs still do not appear, check task definition log driver config:
+
+```bash
+aws ecs describe-task-definition --task-definition <task-def>
+```
+
+Needed:
+
+- log driver `awslogs`
+- `awslogs-group`
+- `awslogs-stream-prefix`
+
+## EC2 port forward does not start
+
+Check:
+
+- instance is SSM managed and online
+- local port is free
+- remote port is reachable from instance
+- if using `--remote-host`, target host is reachable from instance
+
+Example:
+
+```bash
+awscan ec2 port-forward \
+  --instance i-0123456789abcdef0 \
+  --local-port 15432 \
+  --remote-port 5432 \
+  --remote-host db.internal
+```
+
 ## Required IAM permissions
 
 Common permissions for the MVP:

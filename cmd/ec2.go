@@ -9,5 +9,6 @@ func newEC2Command(env *commandEnv, root *rootFlags) *cobra.Command {
 	}
 
 	cmd.AddCommand(newEC2ShellCommand(env, root))
+	cmd.AddCommand(newEC2PortForwardCommand(env, root))
 	return cmd
 }

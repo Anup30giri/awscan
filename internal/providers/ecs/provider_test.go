@@ -57,6 +57,7 @@ func (fakeAPI) ListTasks(ctx context.Context, params *awsecs.ListTasksInput, opt
 
 func (fakeAPI) DescribeTasks(ctx context.Context, params *awsecs.DescribeTasksInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTasksOutput, error) {
 	taskArn := "arn:aws:ecs:ap-south-1:123:task/prod/abc123"
+	taskDefinitionArn := "arn:aws:ecs:ap-south-1:123:task-definition/api:1"
 	lastStatus := "RUNNING"
 	desiredStatus := "RUNNING"
 	containerName := "app"
@@ -67,6 +68,7 @@ func (fakeAPI) DescribeTasks(ctx context.Context, params *awsecs.DescribeTasksIn
 	return &awsecs.DescribeTasksOutput{
 		Tasks: []ecstypes.Task{{
 			TaskArn:              &taskArn,
+			TaskDefinitionArn:    &taskDefinitionArn,
 			LastStatus:           &lastStatus,
 			DesiredStatus:        &desiredStatus,
 			LaunchType:           ecstypes.LaunchTypeFargate,
@@ -78,6 +80,26 @@ func (fakeAPI) DescribeTasks(ctx context.Context, params *awsecs.DescribeTasksIn
 				RuntimeId:  &runtimeID,
 			}},
 		}},
+	}, nil
+}
+
+func (fakeAPI) DescribeTaskDefinition(ctx context.Context, params *awsecs.DescribeTaskDefinitionInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTaskDefinitionOutput, error) {
+	containerName := "app"
+	group := "/ecs/api"
+	prefix := "service"
+	return &awsecs.DescribeTaskDefinitionOutput{
+		TaskDefinition: &ecstypes.TaskDefinition{
+			ContainerDefinitions: []ecstypes.ContainerDefinition{{
+				Name: &containerName,
+				LogConfiguration: &ecstypes.LogConfiguration{
+					LogDriver: ecstypes.LogDriverAwslogs,
+					Options: map[string]string{
+						"awslogs-group":         group,
+						"awslogs-stream-prefix": prefix,
+					},
+				},
+			}},
+		},
 	}, nil
 }
 

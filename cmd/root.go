@@ -11,7 +11,6 @@ import (
 	internalaws "github.com/anupgiri/awscan/internal/aws"
 	appconfig "github.com/anupgiri/awscan/internal/config"
 	internalexec "github.com/anupgiri/awscan/internal/exec"
-	"github.com/anupgiri/awscan/internal/tui"
 )
 
 type commandEnv struct {
@@ -71,17 +70,11 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 	cmd.AddCommand(newEC2Command(env, flags))
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		profile := flags.profile
-		region := flags.region
-
-		selectedProfile, selectedRegion, err := resolveProfileAndRegionInteractively(cmd.Context(), env, profile, region)
+		runtime, err := resolveShellRuntime(cmd.Context(), env, flags, false)
 		if err != nil {
 			return err
 		}
-		flags.profile = selectedProfile
-		flags.region = selectedRegion
-
-		target, err := selectDefaultShellTarget(cmd.Context(), selectedProfile, selectedRegion)
+		target, err := selectDefaultTarget(cmd.Context(), runtime)
 		if err != nil {
 			return err
 		}
@@ -97,35 +90,4 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 	}
 
 	return cmd
-}
-
-func selectDefaultShellTarget(ctx context.Context, profile, region string) (string, error) {
-	output, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
-		Title: "awscan",
-		State: tui.WorkflowState{
-			Profile: profile,
-			Region:  region,
-		},
-		Steps: []tui.Step{{
-			Key:   "command",
-			Title: "Select service",
-			Options: []tui.Option{
-				{
-					Label:   "ECS",
-					Details: "Open a shell into a running ECS container using ECS Exec",
-					Value:   "ecs",
-				},
-				{
-					Label:   "EC2",
-					Details: "Open a shell into a running EC2 instance using Session Manager",
-					Value:   "ec2",
-				},
-			},
-		}},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return output.State.Command, nil
 }

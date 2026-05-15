@@ -13,14 +13,14 @@ import (
 )
 
 type Option struct {
-	Label       string
-	Details     string
-	Value       string
-	Meta        map[string]string
+	Label   string
+	Details string
+	Value   string
+	Meta    map[string]string
 }
 
-func (o Option) FilterValue() string { return o.Label + " " + o.Details + " " + o.Value }
-func (o Option) TitleString() string { return o.Label }
+func (o Option) FilterValue() string       { return o.Label + " " + o.Details + " " + o.Value }
+func (o Option) TitleString() string       { return o.Label }
 func (o Option) DescriptionString() string { return o.Details }
 
 func (o Option) Title() string       { return o.Label }
@@ -39,6 +39,8 @@ type Step struct {
 type WorkflowState struct {
 	Profile   string
 	Region    string
+	Account   string
+	Target    string
 	Cluster   string
 	Service   string
 	Task      string
@@ -72,19 +74,19 @@ func defaultKeys() keyMap {
 }
 
 type model struct {
-	title   string
-	steps   []Step
-	index   int
-	list    list.Model
-	keys    keyMap
-	help    help.Model
-	state   WorkflowState
-	width   int
-	height  int
-	err     error
-	done    bool
+	title    string
+	steps    []Step
+	index    int
+	list     list.Model
+	keys     keyMap
+	help     help.Model
+	state    WorkflowState
+	width    int
+	height   int
+	err      error
+	done     bool
 	quitting bool
-	options []Option
+	options  []Option
 }
 
 func RunWorkflow(ctx context.Context, input WorkflowInput) (WorkflowOutput, error) {
@@ -231,6 +233,12 @@ func renderStatus(state WorkflowState) string {
 	if state.Instance != "" {
 		parts = append(parts, renderTag("instance", emptyFallback(state.Instance)))
 	}
+	if state.Account != "" {
+		parts = append(parts, renderTag("account", emptyFallback(state.Account)))
+	}
+	if state.Target != "" {
+		parts = append(parts, renderTag("target", emptyFallback(state.Target)))
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 
@@ -266,6 +274,8 @@ func (m *model) applySelection(option Option) {
 		m.state.Container = option.Value
 	case "instance":
 		m.state.Instance = option.Value
+	case "target":
+		m.state.Target = option.Value
 	case "command":
 		m.state.Command = option.Value
 	}

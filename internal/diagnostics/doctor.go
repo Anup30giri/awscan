@@ -32,11 +32,11 @@ type Report struct {
 }
 
 type Options struct {
-	Profile string
-	Region  string
-	Cluster string
-	Service string
-	Task    string
+	Profile  string
+	Region   string
+	Cluster  string
+	Service  string
+	Task     string
 	Instance string
 }
 
@@ -90,7 +90,7 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 	ecsProvider := ecsprovider.New(runtime.Config, runtime.Profile, runtime.Region, d.Runner)
 	clusters, err := ecsProvider.ListClusters(ctx)
 	if err != nil {
-		report.Add("ECS ListClusters", StatusFail, "AWS credentials are valid, but ECS ListClusters failed. Check region or ecs:ListClusters permission.")
+		report.Add("ECS ListClusters", classifyOperationStatus(err), classifyOperationMessage("ECS ListClusters", "ecs:ListClusters", err))
 	} else {
 		report.Add("ECS ListClusters", StatusPass, fmt.Sprintf("%d cluster(s) visible", len(clusters)))
 	}
@@ -127,6 +127,34 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+func classifyOperationStatus(err error) Status {
+	if err == nil {
+		return StatusPass
+	}
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "accessdenied"), strings.Contains(text, "unauthorizedoperation"), strings.Contains(text, "not authorized"):
+		return StatusFail
+	default:
+		return StatusFail
+	}
+}
+
+func classifyOperationMessage(op, permission string, err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "accessdenied"), strings.Contains(text, "unauthorizedoperation"), strings.Contains(text, "not authorized"):
+		return fmt.Sprintf("%s failed with an authorization error. Check %s permission. Original error: %s", op, permission, err)
+	case strings.Contains(text, "endpoint"), strings.Contains(text, "no such host"):
+		return fmt.Sprintf("%s failed due to endpoint or region resolution. Check region/network. Original error: %s", op, err)
+	default:
+		return err.Error()
+	}
 }
 
 func (r *Report) Add(name string, status Status, details string) {

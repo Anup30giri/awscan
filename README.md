@@ -6,7 +6,9 @@ The MVP focuses on:
 
 - `awscan doctor`
 - `awscan ecs shell`
+- `awscan ecs logs`
 - `awscan ec2 shell`
+- `awscan ec2 port-forward`
 
 It is designed so ECS is first-class today, with clean seams for future EC2, EKS, logs, SSM, and port-forwarding workflows.
 
@@ -74,6 +76,31 @@ awscan ec2 shell \
   --region ap-south-1 \
   --instance i-0123456789abcdef0 \
   --command /bin/bash
+```
+
+Tail ECS logs:
+
+```bash
+awscan ecs logs \
+  --profile default \
+  --region ap-south-1 \
+  --cluster prod \
+  --service api \
+  --task arn:aws:ecs:ap-south-1:123456789012:task/prod/abc123 \
+  --container app \
+  --since 30m \
+  --follow
+```
+
+Start EC2 port forward:
+
+```bash
+awscan ec2 port-forward \
+  --profile default \
+  --region ap-south-1 \
+  --instance i-0123456789abcdef0 \
+  --local-port 15432 \
+  --remote-port 5432
 ```
 
 Run with direct targeting flags:
@@ -158,6 +185,7 @@ If a profile includes `login_session`, `awscan` does not rely on the SDK to inte
 - `internal/aws/`: profile parsing, credential loading, caller identity, region handling
 - `internal/providers/ecs/`: ECS listing, readiness checks, exec handoff
 - `internal/providers/ec2/`: EC2 discovery, Session Manager readiness checks, shell handoff
+- `internal/providers/ec2/`: EC2 discovery, Session Manager readiness checks, shell handoff, port forwarding
 - `internal/tui/`: Bubble Tea workflow UI
 - `internal/diagnostics/`: `doctor` checks and output
 - `internal/config/`: local preference file management

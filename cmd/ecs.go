@@ -9,5 +9,6 @@ func newECSCommand(env *commandEnv, root *rootFlags) *cobra.Command {
 	}
 
 	cmd.AddCommand(newECSShellCommand(env, root))
+	cmd.AddCommand(newECSLogsCommand(env, root))
 	return cmd
 }

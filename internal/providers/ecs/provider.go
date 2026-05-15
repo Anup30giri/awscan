@@ -61,6 +61,21 @@ type ExecuteCommandInput struct {
 	Interactive   bool
 }
 
+type TailLogsInput struct {
+	Profile    string
+	Region     string
+	LogGroup   string
+	LogStreams []string
+	Follow     bool
+	Since      string
+}
+
+type ContainerLogTarget struct {
+	ContainerName string
+	LogGroup      string
+	LogStream     string
+}
+
 type ExecReadiness struct {
 	ServiceExecEnabled bool
 	TaskExecEnabled    bool
@@ -76,6 +91,8 @@ type Provider interface {
 	ListContainers(ctx context.Context, task *TaskDetail) ([]Container, error)
 	CheckExecReadiness(ctx context.Context, clusterArn string, serviceArn string, taskArn string) (*ExecReadiness, error)
 	ExecuteCommand(ctx context.Context, input ExecuteCommandInput) error
+	ResolveLogTargets(ctx context.Context, clusterArn string, taskArn string) ([]ContainerLogTarget, error)
+	TailLogs(ctx context.Context, input TailLogsInput) error
 }
 
 type ecsAPI interface {
@@ -84,6 +101,7 @@ type ecsAPI interface {
 	DescribeServices(ctx context.Context, params *awsecs.DescribeServicesInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeServicesOutput, error)
 	ListTasks(ctx context.Context, params *awsecs.ListTasksInput, optFns ...func(*awsecs.Options)) (*awsecs.ListTasksOutput, error)
 	DescribeTasks(ctx context.Context, params *awsecs.DescribeTasksInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTasksOutput, error)
+	DescribeTaskDefinition(ctx context.Context, params *awsecs.DescribeTaskDefinitionInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTaskDefinitionOutput, error)
 }
 
 type ServiceProvider struct {
@@ -313,6 +331,74 @@ func (p *ServiceProvider) ExecuteCommand(ctx context.Context, input ExecuteComma
 		args = append(args, "--interactive")
 	} else {
 		args = append(args, "--non-interactive")
+	}
+	if input.Region != "" {
+		args = append(args, "--region", input.Region)
+	}
+	if input.Profile != "" {
+		args = append(args, "--profile", input.Profile)
+	}
+
+	return p.runner.RunInteractive(ctx, "aws", args, nil)
+}
+
+func (p *ServiceProvider) ResolveLogTargets(ctx context.Context, clusterArn string, taskArn string) ([]ContainerLogTarget, error) {
+	taskDetail, err := p.DescribeTask(ctx, clusterArn, taskArn)
+	if err != nil {
+		return nil, err
+	}
+	if taskDetail.Raw.TaskDefinitionArn == nil {
+		return nil, fmt.Errorf("task %q does not have a task definition ARN", taskArn)
+	}
+
+	taskDefOutput, err := p.client.DescribeTaskDefinition(ctx, &awsecs.DescribeTaskDefinitionInput{
+		TaskDefinition: taskDetail.Raw.TaskDefinitionArn,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe task definition for logs: %w", err)
+	}
+
+	taskShortID := resourceNameFromARN(taskArn)
+	targets := make([]ContainerLogTarget, 0, len(taskDefOutput.TaskDefinition.ContainerDefinitions))
+	for _, containerDef := range taskDefOutput.TaskDefinition.ContainerDefinitions {
+		name := stringValue(containerDef.Name)
+		if containerDef.LogConfiguration == nil || containerDef.LogConfiguration.LogDriver != ecstypes.LogDriverAwslogs {
+			continue
+		}
+		opts := containerDef.LogConfiguration.Options
+		group := opts["awslogs-group"]
+		prefix := opts["awslogs-stream-prefix"]
+		if group == "" || prefix == "" || name == "" {
+			continue
+		}
+		targets = append(targets, ContainerLogTarget{
+			ContainerName: name,
+			LogGroup:      group,
+			LogStream:     fmt.Sprintf("%s/%s/%s", prefix, name, taskShortID),
+		})
+	}
+
+	return targets, nil
+}
+
+func (p *ServiceProvider) TailLogs(ctx context.Context, input TailLogsInput) error {
+	if err := internalexec.EnsureBinary(p.runner, "aws"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.LogGroup) == "" {
+		return fmt.Errorf("log group is required")
+	}
+
+	args := []string{"logs", "tail", input.LogGroup}
+	if len(input.LogStreams) > 0 {
+		args = append(args, "--log-stream-names")
+		args = append(args, input.LogStreams...)
+	}
+	if input.Follow {
+		args = append(args, "--follow")
+	}
+	if strings.TrimSpace(input.Since) != "" {
+		args = append(args, "--since", input.Since)
 	}
 	if input.Region != "" {
 		args = append(args, "--region", input.Region)

@@ -8,8 +8,8 @@ import (
 )
 
 type RuntimeContext struct {
-	Context      context.Context
-	AWS          internalaws.Runtime
-	Preferences  *appconfig.Preferences
+	Context        context.Context
+	AWS            internalaws.Runtime
+	Preferences    *appconfig.Preferences
 	NonInteractive bool
 }

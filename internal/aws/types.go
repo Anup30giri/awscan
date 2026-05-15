@@ -25,14 +25,14 @@ type ResolveOptions struct {
 }
 
 type Runtime struct {
-	Config         sdkaws.Config
-	Profile        string
-	Region         string
-	ProfileKind    ProfileKind
-	Available      []Profile
-	Identity       *Identity
-	ResolvedAt     time.Time
-	Source         string
+	Config      sdkaws.Config
+	Profile     string
+	Region      string
+	ProfileKind ProfileKind
+	Available   []Profile
+	Identity    *Identity
+	ResolvedAt  time.Time
+	Source      string
 }
 
 type Identity struct {

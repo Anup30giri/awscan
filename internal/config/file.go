@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	appDirName  = "awscan"
-	configFile  = "config.yaml"
+	appDirName = "awscan"
+	configFile = "config.yaml"
 )
 
 type Manager struct {

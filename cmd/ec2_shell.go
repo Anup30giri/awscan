@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	internalaws "github.com/anupgiri/awscan/internal/aws"
 	ec2provider "github.com/anupgiri/awscan/internal/providers/ec2"
 	"github.com/anupgiri/awscan/internal/tui"
 	"github.com/anupgiri/awscan/internal/tui/screens"
@@ -38,28 +37,19 @@ func newEC2ShellCommand(env *commandEnv, root *rootFlags) *cobra.Command {
 }
 
 func runEC2Shell(ctx context.Context, env *commandEnv, root *rootFlags, flags ec2ShellFlags) error {
-	profile := root.profile
-	region := root.region
-
-	if !flags.nonInteractive {
-		selectedProfile, selectedRegion, err := resolveProfileAndRegionInteractively(ctx, env, profile, region)
-		if err != nil {
-			return err
-		}
-		profile = selectedProfile
-		region = selectedRegion
-	}
-
-	runtime, err := env.resolver.Resolve(ctx, internalaws.ResolveOptions{
-		Profile: profile,
-		Region:  region,
-	})
+	runtime, err := resolveShellRuntime(ctx, env, root, flags.nonInteractive)
 	if err != nil {
 		return err
 	}
 
 	provider := ec2provider.New(runtime.Config, env.runner)
 	instanceID := flags.instance
+	if instanceID != "" {
+		instanceID, err = provider.ResolveInstanceID(ctx, instanceID)
+		if err != nil {
+			return err
+		}
+	}
 	command := flags.command
 
 	if command == "" && instanceID != "" {
@@ -74,7 +64,7 @@ func runEC2Shell(ctx context.Context, env *commandEnv, root *rootFlags, flags ec
 			command = "/bin/sh"
 		}
 	} else {
-		instanceID, command, err = resolveEC2SelectionsInteractively(ctx, env, provider, runtime, instanceID, command)
+		instanceID, command, err = resolveEC2SelectionsInteractively(ctx, env, provider, runtimeAdapter{profile: runtime.Profile, region: runtime.Region, account: accountID(runtime)}, instanceID, command)
 		if err != nil {
 			return err
 		}
@@ -104,40 +94,21 @@ func resolveEC2SelectionsInteractively(
 	ctx context.Context,
 	env *commandEnv,
 	provider ec2provider.Provider,
-	runtime internalaws.Runtime,
+	runtime runtimeAdapter,
 	instanceID, command string,
 ) (string, string, error) {
 	state := tui.WorkflowState{
-		Profile:  runtime.Profile,
-		Region:   runtime.Region,
+		Profile:  runtime.ProfileName(),
+		Region:   runtime.RegionName(),
+		Account:  runtime.AccountID(),
+		Target:   "ec2",
 		Instance: instanceID,
 		Command:  command,
 	}
 
 	steps := []tui.Step{}
 	if instanceID == "" {
-		steps = append(steps, screens.InstanceStep(nil, env.prefs.Recent.EC2.InstanceID))
-		steps[len(steps)-1].Load = func(state tui.WorkflowState) ([]tui.Option, error) {
-			instances, err := provider.ListInstances(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if len(instances) == 0 {
-				return nil, fmt.Errorf("no running EC2 instances found in %s", runtime.Region)
-			}
-			options := make([]tui.Option, 0, len(instances))
-			for _, instance := range instances {
-				label := firstNonEmpty(instance.Name, instance.InstanceID)
-				details := fmt.Sprintf("%s | private=%s | az=%s | ssm=%t",
-					instance.Platform, firstNonEmpty(instance.PrivateIP, "-"), firstNonEmpty(instance.AvailabilityAZ, "-"), instance.ManagedBySSM)
-				options = append(options, tui.Option{
-					Label:   label,
-					Details: details,
-					Value:   instance.InstanceID,
-				})
-			}
-			return options, nil
-		}
+		steps = append(steps, buildEC2InstanceStep(ctx, env, provider, runtime, instanceID))
 	}
 
 	if strings.TrimSpace(command) == "" {
@@ -171,8 +142,7 @@ func resolveEC2SelectionsInteractively(
 }
 
 func saveEC2Preferences(env *commandEnv, profile, region, instanceID, command string) error {
-	env.prefs.DefaultProfile = profile
-	env.prefs.DefaultRegion = region
+	saveGlobalPreferences(env, profile, region)
 	env.prefs.Recent.EC2.InstanceID = instanceID
 	if instanceID != "" && command != "" {
 		if env.prefs.DefaultShells == nil {
@@ -181,4 +151,30 @@ func saveEC2Preferences(env *commandEnv, profile, region, instanceID, command st
 		env.prefs.DefaultShells[instanceID] = command
 	}
 	return env.app.Config.Save(env.prefs)
+}
+
+func buildEC2InstanceStep(ctx context.Context, env *commandEnv, provider ec2provider.Provider, runtime runtimeAdapter, instanceID string) tui.Step {
+	step := screens.InstanceStep(nil, env.prefs.Recent.EC2.InstanceID)
+	step.Load = func(state tui.WorkflowState) ([]tui.Option, error) {
+		instances, err := provider.ListInstances(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(instances) == 0 {
+			return nil, fmt.Errorf("no running EC2 instances found in %s", runtime.RegionName())
+		}
+		options := make([]tui.Option, 0, len(instances))
+		for _, instance := range instances {
+			label := firstNonEmpty(instance.Name, instance.InstanceID)
+			details := fmt.Sprintf("%s | private=%s | az=%s | ssm=%t",
+				instance.Platform, firstNonEmpty(instance.PrivateIP, "-"), firstNonEmpty(instance.AvailabilityAZ, "-"), instance.ManagedBySSM)
+			options = append(options, tui.Option{
+				Label:   label,
+				Details: details,
+				Value:   instance.InstanceID,
+			})
+		}
+		return options, nil
+	}
+	return step
 }

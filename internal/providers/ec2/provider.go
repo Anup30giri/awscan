@@ -40,10 +40,21 @@ type StartSessionInput struct {
 	Command    string
 }
 
+type StartPortForwardInput struct {
+	Profile    string
+	Region     string
+	InstanceID string
+	LocalPort  int
+	RemotePort int
+	RemoteHost string
+}
+
 type Provider interface {
 	ListInstances(ctx context.Context) ([]Instance, error)
 	CheckSessionReadiness(ctx context.Context, instanceID string) (*SessionReadiness, error)
 	StartSession(ctx context.Context, input StartSessionInput) error
+	StartPortForward(ctx context.Context, input StartPortForwardInput) error
+	ResolveInstanceID(ctx context.Context, raw string) (string, error)
 }
 
 type ec2API interface {
@@ -184,6 +195,75 @@ func (p *ServiceProvider) StartSession(ctx context.Context, input StartSessionIn
 	}
 
 	return p.runner.RunInteractive(ctx, "aws", args, nil)
+}
+
+func (p *ServiceProvider) StartPortForward(ctx context.Context, input StartPortForwardInput) error {
+	if err := internalexec.EnsureBinary(p.runner, "aws"); err != nil {
+		return err
+	}
+	if err := internalexec.EnsureBinary(p.runner, "session-manager-plugin"); err != nil {
+		return fmt.Errorf("session-manager-plugin is missing. Install it before using EC2 port forwarding")
+	}
+	if input.LocalPort <= 0 || input.RemotePort <= 0 {
+		return fmt.Errorf("local and remote ports must be greater than zero")
+	}
+
+	document := "AWS-StartPortForwardingSession"
+	parameters := fmt.Sprintf("portNumber=%d,localPortNumber=%d", input.RemotePort, input.LocalPort)
+	if strings.TrimSpace(input.RemoteHost) != "" {
+		document = "AWS-StartPortForwardingSessionToRemoteHost"
+		parameters = fmt.Sprintf("host=%s,portNumber=%d,localPortNumber=%d", input.RemoteHost, input.RemotePort, input.LocalPort)
+	}
+
+	args := []string{
+		"ssm", "start-session",
+		"--target", input.InstanceID,
+		"--document-name", document,
+		"--parameters", parameters,
+	}
+	if input.Region != "" {
+		args = append(args, "--region", input.Region)
+	}
+	if input.Profile != "" {
+		args = append(args, "--profile", input.Profile)
+	}
+
+	return p.runner.RunInteractive(ctx, "aws", args, nil)
+}
+
+func (p *ServiceProvider) ResolveInstanceID(ctx context.Context, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("instance identifier cannot be empty")
+	}
+	if strings.HasPrefix(value, "i-") {
+		return value, nil
+	}
+
+	output, err := p.ec2Client.DescribeInstances(ctx, &awsec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{Name: sdkaws.String("tag:Name"), Values: []string{value}},
+			{Name: sdkaws.String("instance-state-name"), Values: []string{"running"}},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve EC2 instance name %q: %w", value, err)
+	}
+
+	matches := []string{}
+	for _, reservation := range output.Reservations {
+		for _, instance := range reservation.Instances {
+			matches = append(matches, stringValue(instance.InstanceId))
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no running EC2 instance found with Name tag %q", value)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("multiple running EC2 instances match Name tag %q; use --instance with instance ID", value)
+	}
 }
 
 func (p *ServiceProvider) fetchManagedInstanceStatuses(ctx context.Context) (map[string]bool, error) {
