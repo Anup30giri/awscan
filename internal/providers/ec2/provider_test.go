@@ -33,6 +33,9 @@ func (fakeEC2API) DescribeInstances(ctx context.Context, params *awsec2.Describe
 	privateIP := "10.0.0.10"
 	publicIP := "1.2.3.4"
 	az := "ap-south-1a"
+	subnetID := "subnet-123"
+	vpcID := "vpc-123"
+	arn := "arn:aws:iam::123:instance-profile/demo"
 	return &awsec2.DescribeInstancesOutput{
 		Reservations: []ec2types.Reservation{{
 			Instances: []ec2types.Instance{{
@@ -40,8 +43,19 @@ func (fakeEC2API) DescribeInstances(ctx context.Context, params *awsec2.Describe
 				PrivateIpAddress: &privateIP,
 				PublicIpAddress:  &publicIP,
 				PlatformDetails:  sdkaws.String("Linux/UNIX"),
+				Architecture:     ec2types.ArchitectureValuesX8664,
+				InstanceType:     ec2types.InstanceTypeT3Micro,
 				State:            &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
 				Placement:        &ec2types.Placement{AvailabilityZone: &az},
+				SubnetId:         &subnetID,
+				VpcId:            &vpcID,
+				IamInstanceProfile: &ec2types.IamInstanceProfile{
+					Arn: &arn,
+				},
+				SecurityGroups: []ec2types.GroupIdentifier{{
+					GroupName: sdkaws.String("default"),
+					GroupId:   sdkaws.String("sg-123"),
+				}},
 				Tags: []ec2types.Tag{{
 					Key:   &nameKey,
 					Value: &nameVal,
@@ -58,6 +72,27 @@ func (fakeSSMAPI) DescribeInstanceInformation(ctx context.Context, params *awsss
 			InstanceId: &id,
 			PingStatus: ssmtypes.PingStatusOnline,
 		}},
+	}, nil
+}
+
+func (fakeSSMAPI) ListDocuments(ctx context.Context, params *awsssm.ListDocumentsInput, optFns ...func(*awsssm.Options)) (*awsssm.ListDocumentsOutput, error) {
+	name := "AWS-RunShellScript"
+	owner := "Amazon"
+	return &awsssm.ListDocumentsOutput{
+		DocumentIdentifiers: []ssmtypes.DocumentIdentifier{{
+			Name:         &name,
+			Owner:        &owner,
+			DocumentType: ssmtypes.DocumentTypeCommand,
+		}},
+	}, nil
+}
+
+func (fakeSSMAPI) SendCommand(ctx context.Context, params *awsssm.SendCommandInput, optFns ...func(*awsssm.Options)) (*awsssm.SendCommandOutput, error) {
+	commandID := "cmd-123"
+	return &awsssm.SendCommandOutput{
+		Command: &ssmtypes.Command{
+			CommandId: &commandID,
+		},
 	}, nil
 }
 
@@ -93,5 +128,48 @@ func TestStartSessionBuildsCLIInvocation(t *testing.T) {
 	}
 	if runner.name != "aws" {
 		t.Fatalf("runner.name = %q, want aws", runner.name)
+	}
+}
+
+func TestDescribeInstance(t *testing.T) {
+	t.Parallel()
+
+	provider := NewWithClients(fakeEC2API{}, fakeSSMAPI{}, &fakeRunner{})
+	detail, err := provider.DescribeInstance(context.Background(), "i-1234567890")
+	if err != nil {
+		t.Fatalf("DescribeInstance() error = %v", err)
+	}
+	if detail.InstanceType == "" {
+		t.Fatal("expected instance type to be populated")
+	}
+}
+
+func TestListSSMDocuments(t *testing.T) {
+	t.Parallel()
+
+	provider := NewWithClients(fakeEC2API{}, fakeSSMAPI{}, &fakeRunner{})
+	docs, err := provider.ListSSMDocuments(context.Background())
+	if err != nil {
+		t.Fatalf("ListSSMDocuments() error = %v", err)
+	}
+	if len(docs) == 0 {
+		t.Fatal("expected at least one document")
+	}
+}
+
+func TestSendDocumentCommand(t *testing.T) {
+	t.Parallel()
+
+	provider := NewWithClients(fakeEC2API{}, fakeSSMAPI{}, &fakeRunner{})
+	commandID, err := provider.SendDocumentCommand(context.Background(), SendDocumentCommandInput{
+		InstanceID: "i-1234567890",
+		Document:   "AWS-RunShellScript",
+		Commands:   []string{"echo hi"},
+	})
+	if err != nil {
+		t.Fatalf("SendDocumentCommand() error = %v", err)
+	}
+	if commandID != "cmd-123" {
+		t.Fatalf("commandID = %q, want cmd-123", commandID)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	internalaws "github.com/anupgiri/awscan/internal/aws"
 	"github.com/anupgiri/awscan/internal/tui"
 	"github.com/anupgiri/awscan/internal/tui/screens"
+	"github.com/anupgiri/awscan/pkg/plugin"
 )
 
 func resolveShellRuntime(ctx context.Context, env *commandEnv, root *rootFlags, nonInteractive bool) (internalaws.Runtime, error) {
@@ -129,24 +130,7 @@ func buildCommandOptions() []tui.Option {
 	}
 }
 
-func serviceTargetOptions() []tui.Option {
-	return []tui.Option{
-		{
-			Label:   "ECS",
-			Details: "Shell or logs for running ECS service/task/container",
-			Value:   "ecs",
-			Meta:    map[string]string{"service": "ecs"},
-		},
-		{
-			Label:   "EC2",
-			Details: "Shell or port forward for running EC2 instance via SSM",
-			Value:   "ec2",
-			Meta:    map[string]string{"service": "ec2"},
-		},
-	}
-}
-
-func selectDefaultTarget(ctx context.Context, runtime internalaws.Runtime) (string, error) {
+func selectDefaultTarget(ctx context.Context, runtime internalaws.Runtime, services []plugin.ServiceRegistration) (string, error) {
 	output, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
 		Title: "awscan",
 		State: tui.WorkflowState{
@@ -155,7 +139,7 @@ func selectDefaultTarget(ctx context.Context, runtime internalaws.Runtime) (stri
 			Account: accountID(runtime),
 		},
 		Steps: []tui.Step{
-			screens.TargetStep(serviceTargetOptions(), ""),
+			screens.TargetStep(serviceTargetOptionsFromRegistry(services), ""),
 		},
 	})
 	if err != nil {

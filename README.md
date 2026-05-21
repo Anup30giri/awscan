@@ -7,7 +7,12 @@ The MVP focuses on:
 - `awscan doctor`
 - `awscan ecs shell`
 - `awscan ecs logs`
+- `awscan ecs inspect`
+- `awscan ecs events`
+- `awscan ecs restart`
 - `awscan ec2 shell`
+- `awscan ec2 inspect`
+- `awscan ec2 documents`
 - `awscan ec2 port-forward`
 
 It is designed so ECS is first-class today, with clean seams for future EC2, EKS, logs, SSM, and port-forwarding workflows.
@@ -62,10 +67,49 @@ Or explicitly:
 awscan ecs shell
 ```
 
+Inspect ECS service and task state:
+
+```bash
+awscan ecs inspect
+```
+
+Show ECS service events:
+
+```bash
+awscan ecs events
+```
+
+Force ECS service restart:
+
+```bash
+awscan ecs restart --cluster prod --service api
+```
+
 Open an interactive EC2 Session Manager shell workflow:
 
 ```bash
 awscan ec2 shell
+```
+
+Inspect EC2 instance:
+
+```bash
+awscan ec2 inspect
+```
+
+List allowlisted SSM documents:
+
+```bash
+awscan ec2 documents
+```
+
+Execute allowlisted SSM document:
+
+```bash
+awscan ec2 documents \
+  --instance i-0123456789abcdef0 \
+  --document AWS-RunShellScript \
+  --command "uname -a"
 ```
 
 Run EC2 shell directly with flags:
@@ -134,6 +178,13 @@ Run diagnostics:
 awscan doctor
 ```
 
+Run feature-scoped diagnostics:
+
+```bash
+awscan doctor --target ecs --check logs --cluster prod --service api
+awscan doctor --target ec2 --check port-forward --instance i-0123456789abcdef0
+```
+
 Run EC2-specific preflight diagnostics:
 
 ```bash
@@ -174,6 +225,9 @@ recent:
     container: app
   ec2:
     instance_id: i-0123456789abcdef0
+    remote_host: db.internal
+    local_port: 15432
+    remote_port: 5432
 default_shells:
   app: /bin/sh
   i-0123456789abcdef0: /bin/bash
@@ -195,13 +249,12 @@ If a profile includes `login_session`, `awscan` does not rely on the SDK to inte
 
 - `cmd/`: Cobra commands
 - `internal/aws/`: profile parsing, credential loading, caller identity, region handling
-- `internal/providers/ecs/`: ECS listing, readiness checks, exec handoff
-- `internal/providers/ec2/`: EC2 discovery, Session Manager readiness checks, shell handoff
-- `internal/providers/ec2/`: EC2 discovery, Session Manager readiness checks, shell handoff, port forwarding
+- `internal/providers/ecs/`: ECS listing, inspect/events/restart, readiness checks, exec/log handoff
+- `internal/providers/ec2/`: EC2 discovery, inspect, Session Manager readiness checks, shell handoff, documents, port forwarding
 - `internal/tui/`: Bubble Tea workflow UI
 - `internal/diagnostics/`: `doctor` checks and output
 - `internal/config/`: local preference file management
-- `pkg/plugin/`: future provider/plugin interfaces
+- `pkg/plugin/`: service registration model for root dispatch
 
 ## Testing
 

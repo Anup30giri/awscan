@@ -21,6 +21,15 @@ func TestClassifyOperationMessage(t *testing.T) {
 	}
 }
 
+func TestClassifyOperationMessageEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := classifyOperationMessage("ECS ListClusters", "ecs:ListClusters", assertErr("endpoint url error"))
+	if got == "" {
+		t.Fatal("expected non-empty endpoint message")
+	}
+}
+
 type stringErr string
 
 func (e stringErr) Error() string { return string(e) }

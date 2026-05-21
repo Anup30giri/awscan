@@ -103,6 +103,10 @@ func (fakeAPI) DescribeTaskDefinition(ctx context.Context, params *awsecs.Descri
 	}, nil
 }
 
+func (fakeAPI) UpdateService(ctx context.Context, params *awsecs.UpdateServiceInput, optFns ...func(*awsecs.Options)) (*awsecs.UpdateServiceOutput, error) {
+	return &awsecs.UpdateServiceOutput{}, nil
+}
+
 func TestListClusters(t *testing.T) {
 	t.Parallel()
 
@@ -126,6 +130,32 @@ func TestCheckExecReadiness(t *testing.T) {
 	}
 	if !readiness.ServiceExecEnabled || !readiness.TaskExecEnabled {
 		t.Fatalf("expected exec readiness, got %+v", readiness)
+	}
+}
+
+func TestDescribeService(t *testing.T) {
+	t.Parallel()
+
+	provider := NewWithClient(fakeAPI{}, "", "", fakeRunner{})
+	detail, err := provider.DescribeService(context.Background(), "cluster", "service")
+	if err != nil {
+		t.Fatalf("DescribeService() error = %v", err)
+	}
+	if detail.Service.Name != "api" {
+		t.Fatalf("Service.Name = %q, want api", detail.Service.Name)
+	}
+}
+
+func TestResolveLatestTask(t *testing.T) {
+	t.Parallel()
+
+	provider := NewWithClient(fakeAPI{}, "", "", fakeRunner{})
+	task, err := provider.ResolveLatestTask(context.Background(), "cluster", "service")
+	if err != nil {
+		t.Fatalf("ResolveLatestTask() error = %v", err)
+	}
+	if task.ShortID != "abc123" {
+		t.Fatalf("ShortID = %q, want abc123", task.ShortID)
 	}
 }
 

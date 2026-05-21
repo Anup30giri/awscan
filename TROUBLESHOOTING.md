@@ -136,6 +136,23 @@ Needed:
 - `awslogs-group`
 - `awslogs-stream-prefix`
 
+If `--task` is omitted, `awscan ecs logs` resolves latest running task for chosen service.
+If `--all-containers` is used, all selected containers must share one CloudWatch log group.
+
+## ECS restart fails
+
+Check:
+
+- `ecs:UpdateService`
+- service exists in chosen cluster
+- deployment controller allows force-new-deployment
+
+Example:
+
+```bash
+awscan ecs restart --cluster prod --service api --yes
+```
+
 ## EC2 port forward does not start
 
 Check:
@@ -153,6 +170,22 @@ awscan ec2 port-forward \
   --local-port 15432 \
   --remote-port 5432 \
   --remote-host db.internal
+```
+
+## EC2 documents execution fails
+
+Current implementation only allows:
+
+- `AWS-RunShellScript`
+- `AWS-RunPowerShellScript`
+- `AWS-UpdateSSMAgent`
+
+Examples:
+
+```bash
+awscan ec2 documents
+awscan ec2 documents --instance i-0123456789abcdef0 --document AWS-UpdateSSMAgent --yes
+awscan ec2 documents --instance i-0123456789abcdef0 --document AWS-RunShellScript --command "df -h" --yes
 ```
 
 ## Required IAM permissions

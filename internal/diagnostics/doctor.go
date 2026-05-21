@@ -34,6 +34,8 @@ type Report struct {
 type Options struct {
 	Profile  string
 	Region   string
+	Target   string
+	Check    string
 	Cluster  string
 	Service  string
 	Task     string
@@ -87,19 +89,66 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 	}
 	report.Add("STS caller identity", StatusPass, fmt.Sprintf("account=%s arn=%s", identity.Account, identity.ARN))
 
+	if opts.Target == "" || opts.Target == "ecs" {
+		d.runECSChecks(ctx, report, runtime, opts)
+	}
+	if opts.Target == "" || opts.Target == "ec2" {
+		d.runEC2Checks(ctx, report, runtime, opts)
+	}
+
+	return report, nil
+}
+
+func (d *Doctor) runECSChecks(ctx context.Context, report *Report, runtime internalaws.Runtime, opts Options) {
 	ecsProvider := ecsprovider.New(runtime.Config, runtime.Profile, runtime.Region, d.Runner)
 	clusters, err := ecsProvider.ListClusters(ctx)
 	if err != nil {
 		report.Add("ECS ListClusters", classifyOperationStatus(err), classifyOperationMessage("ECS ListClusters", "ecs:ListClusters", err))
-	} else {
-		report.Add("ECS ListClusters", StatusPass, fmt.Sprintf("%d cluster(s) visible", len(clusters)))
+		return
+	}
+	report.Add("ECS ListClusters", StatusPass, fmt.Sprintf("%d cluster(s) visible", len(clusters)))
+
+	if opts.Cluster == "" || opts.Service == "" {
+		return
 	}
 
-	if opts.Cluster != "" && opts.Service != "" && opts.Task != "" {
-		readiness, err := ecsProvider.CheckExecReadiness(ctx, opts.Cluster, opts.Service, opts.Task)
+	serviceDetail, err := ecsProvider.DescribeService(ctx, opts.Cluster, opts.Service)
+	if err != nil {
+		report.Add("ECS DescribeService", classifyOperationStatus(err), classifyOperationMessage("ECS DescribeService", "ecs:DescribeServices", err))
+		return
+	}
+	report.Add("ECS DescribeService", StatusPass, fmt.Sprintf("service=%s taskDef=%s exec=%t", serviceDetail.Service.Name, serviceDetail.TaskDefinitionArn, serviceDetail.Service.ExecEnabled))
+
+	switch opts.Check {
+	case "restart":
+		report.Add("ECS Restart readiness", StatusPass, "service resolved and restart path available")
+	case "logs":
+		taskArn := opts.Task
+		if taskArn == "" {
+			latest, err := ecsProvider.ResolveLatestTask(ctx, opts.Cluster, opts.Service)
+			if err != nil {
+				report.Add("ECS LatestTask", StatusFail, err.Error())
+				return
+			}
+			taskArn = latest.Arn
+		}
+		targets, err := ecsProvider.ResolveLogTargets(ctx, opts.Cluster, taskArn)
 		if err != nil {
-			report.Add("ECS Exec readiness", StatusFail, err.Error())
-		} else {
+			report.Add("ECS Logs readiness", StatusFail, err.Error())
+			return
+		}
+		if len(targets) == 0 {
+			report.Add("ECS Logs readiness", StatusWarn, "task definition does not expose awslogs targets")
+			return
+		}
+		report.Add("ECS Logs readiness", StatusPass, fmt.Sprintf("%d awslogs target(s) resolved", len(targets)))
+	default:
+		if opts.Task != "" {
+			readiness, err := ecsProvider.CheckExecReadiness(ctx, opts.Cluster, opts.Service, opts.Task)
+			if err != nil {
+				report.Add("ECS Exec readiness", StatusFail, err.Error())
+				return
+			}
 			status := StatusPass
 			details := "ECS Exec looks ready."
 			if !readiness.ServiceExecEnabled || !readiness.TaskExecEnabled {
@@ -109,24 +158,45 @@ func (d *Doctor) Run(ctx context.Context, opts Options) (*Report, error) {
 			report.Add("ECS Exec readiness", status, details)
 		}
 	}
+}
 
-	if opts.Instance != "" {
-		ec2Provider := ec2provider.New(runtime.Config, d.Runner)
-		readiness, err := ec2Provider.CheckSessionReadiness(ctx, opts.Instance)
-		if err != nil {
-			report.Add("EC2 Session Manager readiness", StatusFail, err.Error())
+func (d *Doctor) runEC2Checks(ctx context.Context, report *Report, runtime internalaws.Runtime, opts Options) {
+	ec2Provider := ec2provider.New(runtime.Config, d.Runner)
+	if opts.Instance == "" {
+		return
+	}
+	readiness, err := ec2Provider.CheckSessionReadiness(ctx, opts.Instance)
+	if err != nil {
+		report.Add("EC2 Session Manager readiness", StatusFail, err.Error())
+		return
+	}
+	status := StatusPass
+	details := "Instance is ready for Session Manager."
+	if !readiness.ManagedBySSM || strings.ToLower(readiness.PingStatus) != "online" {
+		status = StatusWarn
+		details = firstNonEmpty(strings.Join(readiness.Warnings, " "), "Instance is not fully ready for Session Manager.")
+	}
+	report.Add("EC2 Session Manager readiness", status, details)
+
+	detail, err := ec2Provider.DescribeInstance(ctx, opts.Instance)
+	if err == nil {
+		report.Add("EC2 DescribeInstance", StatusPass, fmt.Sprintf("instance=%s state=%s platform=%s", detail.InstanceID, detail.State, detail.Platform))
+	}
+	switch opts.Check {
+	case "port-forward":
+		if err := binaryRequired("session-manager-plugin"); err != nil {
+			report.Add("EC2 Port Forward prerequisites", StatusFail, err.Error())
 		} else {
-			status := StatusPass
-			details := "Instance is ready for Session Manager."
-			if !readiness.ManagedBySSM || strings.ToLower(readiness.PingStatus) != "online" {
-				status = StatusWarn
-				details = firstNonEmpty(strings.Join(readiness.Warnings, " "), "Instance is not fully ready for Session Manager.")
-			}
-			report.Add("EC2 Session Manager readiness", status, details)
+			report.Add("EC2 Port Forward prerequisites", StatusPass, "session-manager-plugin installed")
+		}
+	case "documents":
+		docs, err := ec2Provider.ListSSMDocuments(ctx)
+		if err != nil {
+			report.Add("EC2 Documents readiness", StatusFail, err.Error())
+		} else {
+			report.Add("EC2 Documents readiness", StatusPass, fmt.Sprintf("%d allowlisted SSM document(s) available", len(docs)))
 		}
 	}
-
-	return report, nil
 }
 
 func classifyOperationStatus(err error) Status {
@@ -213,4 +283,11 @@ func envProfileHint() string {
 		return profile
 	}
 	return "environment/default chain"
+}
+
+func binaryRequired(name string) error {
+	if _, err := exec.LookPath(name); err != nil {
+		return fmt.Errorf("%s is not installed or not on PATH", name)
+	}
+	return nil
 }

@@ -20,6 +20,9 @@ type ECSRecentPreferences struct {
 
 type EC2RecentPreferences struct {
 	InstanceID string `yaml:"instance_id,omitempty"`
+	RemoteHost string `yaml:"remote_host,omitempty"`
+	LocalPort  int    `yaml:"local_port,omitempty"`
+	RemotePort int    `yaml:"remote_port,omitempty"`
 }
 
 func DefaultPreferences() *Preferences {

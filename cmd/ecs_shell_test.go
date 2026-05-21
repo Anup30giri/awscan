@@ -31,6 +31,18 @@ func (f *fakeECSProvider) ListContainers(ctx context.Context, task *ecsprovider.
 func (f *fakeECSProvider) CheckExecReadiness(ctx context.Context, clusterArn string, serviceArn string, taskArn string) (*ecsprovider.ExecReadiness, error) {
 	return nil, nil
 }
+func (f *fakeECSProvider) DescribeService(ctx context.Context, clusterArn string, serviceArn string) (*ecsprovider.ServiceDetail, error) {
+	return nil, nil
+}
+func (f *fakeECSProvider) ListServiceEvents(ctx context.Context, clusterArn string, serviceArn string) ([]ecsprovider.ServiceEvent, error) {
+	return nil, nil
+}
+func (f *fakeECSProvider) ForceNewDeployment(ctx context.Context, clusterArn string, serviceArn string) error {
+	return nil
+}
+func (f *fakeECSProvider) ResolveLatestTask(ctx context.Context, clusterArn string, serviceArn string) (*ecsprovider.Task, error) {
+	return nil, nil
+}
 func (f *fakeECSProvider) ResolveLogTargets(ctx context.Context, clusterArn string, taskArn string) ([]ecsprovider.ContainerLogTarget, error) {
 	return nil, nil
 }

@@ -54,6 +54,7 @@ func Execute(ctx context.Context) error {
 
 func newRootCommand(env *commandEnv) *cobra.Command {
 	flags := &rootFlags{}
+	services := registeredServices(env, flags)
 
 	cmd := &cobra.Command{
 		Use:           "awscan",
@@ -66,27 +67,24 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flags.region, "region", "", "AWS region to use")
 
 	cmd.AddCommand(newDoctorCommand(env, flags))
-	cmd.AddCommand(newECSCommand(env, flags))
-	cmd.AddCommand(newEC2Command(env, flags))
+	for _, service := range services {
+		cmd.AddCommand(service.BuildRoot())
+	}
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		runtime, err := resolveShellRuntime(cmd.Context(), env, flags, false)
 		if err != nil {
 			return err
 		}
-		target, err := selectDefaultTarget(cmd.Context(), runtime)
+		target, err := selectDefaultTarget(cmd.Context(), runtime, services)
 		if err != nil {
 			return err
 		}
-
-		switch target {
-		case "ecs":
-			return runECSShell(cmd.Context(), env, flags, ecsShellFlags{})
-		case "ec2":
-			return runEC2Shell(cmd.Context(), env, flags, ec2ShellFlags{})
-		default:
-			return fmt.Errorf("unsupported shell target %q", target)
+		service, err := serviceCommandByID(services, target)
+		if err != nil {
+			return err
 		}
+		return service.DefaultRun(cmd.Context())
 	}
 
 	return cmd

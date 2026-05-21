@@ -10,5 +10,8 @@ func newECSCommand(env *commandEnv, root *rootFlags) *cobra.Command {
 
 	cmd.AddCommand(newECSShellCommand(env, root))
 	cmd.AddCommand(newECSLogsCommand(env, root))
+	cmd.AddCommand(newECSInspectCommand(env, root))
+	cmd.AddCommand(newECSEventsCommand(env, root))
+	cmd.AddCommand(newECSRestartCommand(env, root))
 	return cmd
 }

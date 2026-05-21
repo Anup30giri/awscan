@@ -28,6 +28,31 @@ type Service struct {
 	ExecEnabled  bool
 }
 
+type DeploymentSummary struct {
+	ID           string
+	Status       string
+	RolloutState string
+	DesiredCount int32
+	RunningCount int32
+	PendingCount int32
+	TaskDefArn   string
+	UpdatedAt    time.Time
+}
+
+type ServiceEvent struct {
+	CreatedAt time.Time
+	Message   string
+	ID        string
+}
+
+type ServiceDetail struct {
+	Service           Service
+	ClusterArn        string
+	TaskDefinitionArn string
+	Deployments       []DeploymentSummary
+	Events            []ServiceEvent
+}
+
 type Task struct {
 	Arn           string
 	ShortID       string
@@ -91,6 +116,10 @@ type Provider interface {
 	ListContainers(ctx context.Context, task *TaskDetail) ([]Container, error)
 	CheckExecReadiness(ctx context.Context, clusterArn string, serviceArn string, taskArn string) (*ExecReadiness, error)
 	ExecuteCommand(ctx context.Context, input ExecuteCommandInput) error
+	DescribeService(ctx context.Context, clusterArn string, serviceArn string) (*ServiceDetail, error)
+	ListServiceEvents(ctx context.Context, clusterArn string, serviceArn string) ([]ServiceEvent, error)
+	ForceNewDeployment(ctx context.Context, clusterArn string, serviceArn string) error
+	ResolveLatestTask(ctx context.Context, clusterArn string, serviceArn string) (*Task, error)
 	ResolveLogTargets(ctx context.Context, clusterArn string, taskArn string) ([]ContainerLogTarget, error)
 	TailLogs(ctx context.Context, input TailLogsInput) error
 }
@@ -102,6 +131,7 @@ type ecsAPI interface {
 	ListTasks(ctx context.Context, params *awsecs.ListTasksInput, optFns ...func(*awsecs.Options)) (*awsecs.ListTasksOutput, error)
 	DescribeTasks(ctx context.Context, params *awsecs.DescribeTasksInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTasksOutput, error)
 	DescribeTaskDefinition(ctx context.Context, params *awsecs.DescribeTaskDefinitionInput, optFns ...func(*awsecs.Options)) (*awsecs.DescribeTaskDefinitionOutput, error)
+	UpdateService(ctx context.Context, params *awsecs.UpdateServiceInput, optFns ...func(*awsecs.Options)) (*awsecs.UpdateServiceOutput, error)
 }
 
 type ServiceProvider struct {
@@ -342,6 +372,67 @@ func (p *ServiceProvider) ExecuteCommand(ctx context.Context, input ExecuteComma
 	return p.runner.RunInteractive(ctx, "aws", args, nil)
 }
 
+func (p *ServiceProvider) DescribeService(ctx context.Context, clusterArn string, serviceArn string) (*ServiceDetail, error) {
+	output, err := p.client.DescribeServices(ctx, &awsecs.DescribeServicesInput{
+		Cluster:  sdkaws.String(clusterArn),
+		Services: []string{serviceArn},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe ecs service %q: %w", serviceArn, err)
+	}
+	if len(output.Services) == 0 {
+		return nil, fmt.Errorf("service %q was not found", serviceArn)
+	}
+
+	svc := output.Services[0]
+	detail := &ServiceDetail{
+		Service: Service{
+			Arn:          stringValue(svc.ServiceArn),
+			Name:         stringValue(svc.ServiceName),
+			DesiredCount: svc.DesiredCount,
+			RunningCount: svc.RunningCount,
+			PendingCount: svc.PendingCount,
+			ExecEnabled:  svc.EnableExecuteCommand,
+		},
+		ClusterArn:        clusterArn,
+		TaskDefinitionArn: stringValue(svc.TaskDefinition),
+		Deployments:       mapDeployments(svc.Deployments),
+		Events:            mapEvents(svc.Events),
+	}
+	return detail, nil
+}
+
+func (p *ServiceProvider) ListServiceEvents(ctx context.Context, clusterArn string, serviceArn string) ([]ServiceEvent, error) {
+	detail, err := p.DescribeService(ctx, clusterArn, serviceArn)
+	if err != nil {
+		return nil, err
+	}
+	return detail.Events, nil
+}
+
+func (p *ServiceProvider) ForceNewDeployment(ctx context.Context, clusterArn string, serviceArn string) error {
+	_, err := p.client.UpdateService(ctx, &awsecs.UpdateServiceInput{
+		Cluster:            sdkaws.String(clusterArn),
+		Service:            sdkaws.String(serviceArn),
+		ForceNewDeployment: true,
+	})
+	if err != nil {
+		return fmt.Errorf("force new deployment for service %q: %w", serviceArn, err)
+	}
+	return nil
+}
+
+func (p *ServiceProvider) ResolveLatestTask(ctx context.Context, clusterArn string, serviceArn string) (*Task, error) {
+	tasks, err := p.ListTasks(ctx, clusterArn, serviceArn)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("no running tasks found for service %q", resourceNameFromARN(serviceArn))
+	}
+	return &tasks[0], nil
+}
+
 func (p *ServiceProvider) ResolveLogTargets(ctx context.Context, clusterArn string, taskArn string) ([]ContainerLogTarget, error) {
 	taskDetail, err := p.DescribeTask(ctx, clusterArn, taskArn)
 	if err != nil {
@@ -424,6 +515,49 @@ func mapTask(task ecstypes.Task) Task {
 		LaunchType:    string(task.LaunchType),
 		StartedAt:     startedAt,
 	}
+}
+
+func mapDeployments(deployments []ecstypes.Deployment) []DeploymentSummary {
+	result := make([]DeploymentSummary, 0, len(deployments))
+	for _, deployment := range deployments {
+		updatedAt := time.Time{}
+		if deployment.UpdatedAt != nil {
+			updatedAt = *deployment.UpdatedAt
+		}
+		result = append(result, DeploymentSummary{
+			ID:           stringValue(deployment.Id),
+			Status:       stringValue(deployment.Status),
+			RolloutState: string(deployment.RolloutState),
+			DesiredCount: deployment.DesiredCount,
+			RunningCount: deployment.RunningCount,
+			PendingCount: deployment.PendingCount,
+			TaskDefArn:   stringValue(deployment.TaskDefinition),
+			UpdatedAt:    updatedAt,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return result
+}
+
+func mapEvents(events []ecstypes.ServiceEvent) []ServiceEvent {
+	result := make([]ServiceEvent, 0, len(events))
+	for _, event := range events {
+		createdAt := time.Time{}
+		if event.CreatedAt != nil {
+			createdAt = *event.CreatedAt
+		}
+		result = append(result, ServiceEvent{
+			CreatedAt: createdAt,
+			Message:   stringValue(event.Message),
+			ID:        stringValue(event.Id),
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result
 }
 
 func resourceNameFromARN(value string) string {

@@ -1,12 +1,19 @@
 package plugin
 
-import "github.com/spf13/cobra"
+import (
+	"context"
 
-type ResourceProvider interface {
-	Name() string
+	"github.com/spf13/cobra"
+)
+
+type ServiceRegistration struct {
+	ID          string
+	Name        string
+	Description string
+	BuildRoot   func() *cobra.Command
+	DefaultRun  func(ctx context.Context) error
 }
 
-type ShellTargetProvider interface {
-	Name() string
-	ShellCommand() *cobra.Command
+func (s ServiceRegistration) TargetOption() (label, details, value string) {
+	return s.Name, s.Description, s.ID
 }

@@ -44,6 +44,15 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 
 	provider := ec2provider.New(runtime.Config, env.runner)
 	instanceID := flags.instance
+	remoteHost := firstNonEmpty(flags.remoteHost, env.prefs.Recent.EC2.RemoteHost)
+	localPort := flags.localPort
+	remotePort := flags.remotePort
+	if localPort == 0 {
+		localPort = env.prefs.Recent.EC2.LocalPort
+	}
+	if remotePort == 0 {
+		remotePort = env.prefs.Recent.EC2.RemotePort
+	}
 	if instanceID != "" {
 		instanceID, err = provider.ResolveInstanceID(ctx, instanceID)
 		if err != nil {
@@ -70,7 +79,9 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 	}
 
 	if instanceID == "" || flags.localPort <= 0 || flags.remotePort <= 0 {
-		return errors.New("instance, local-port, and remote-port are required")
+		if instanceID == "" || localPort <= 0 || remotePort <= 0 {
+			return errors.New("instance, local-port, and remote-port are required")
+		}
 	}
 
 	readiness, err := provider.CheckSessionReadiness(ctx, instanceID)
@@ -83,6 +94,9 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 
 	saveGlobalPreferences(env, runtime.Profile, runtime.Region)
 	env.prefs.Recent.EC2.InstanceID = instanceID
+	env.prefs.Recent.EC2.RemoteHost = remoteHost
+	env.prefs.Recent.EC2.LocalPort = localPort
+	env.prefs.Recent.EC2.RemotePort = remotePort
 	if err := env.app.Config.Save(env.prefs); err != nil {
 		return err
 	}
@@ -91,8 +105,8 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 		Profile:    runtime.Profile,
 		Region:     runtime.Region,
 		InstanceID: instanceID,
-		LocalPort:  flags.localPort,
-		RemotePort: flags.remotePort,
-		RemoteHost: flags.remoteHost,
+		LocalPort:  localPort,
+		RemotePort: remotePort,
+		RemoteHost: remoteHost,
 	})
 }
