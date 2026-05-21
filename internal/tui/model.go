@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -19,7 +20,20 @@ type Option struct {
 	Meta    map[string]string
 }
 
-func (o Option) FilterValue() string       { return o.Label + " " + o.Details + " " + o.Value }
+func (o Option) FilterValue() string {
+	parts := []string{o.Label, o.Label, o.Value, o.Value, o.Details}
+	if len(o.Meta) > 0 {
+		keys := make([]string, 0, len(o.Meta))
+		for key := range o.Meta {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts = append(parts, key, o.Meta[key])
+		}
+	}
+	return strings.Join(parts, " ")
+}
 func (o Option) TitleString() string       { return o.Label }
 func (o Option) DescriptionString() string { return o.Details }
 
@@ -63,6 +77,8 @@ type keyMap struct {
 	Select key.Binding
 	Back   key.Binding
 	Quit   key.Binding
+	Next   key.Binding
+	Prev   key.Binding
 }
 
 func defaultKeys() keyMap {
@@ -70,6 +86,8 @@ func defaultKeys() keyMap {
 		Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
 		Back:   key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
 		Quit:   key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+		Next:   key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "down")),
+		Prev:   key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "up")),
 	}
 }
 
@@ -141,6 +159,10 @@ func newModel(input WorkflowInput) (model, error) {
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(false)
+	l.SetShowFilter(true)
+	l.FilterInput.Placeholder = filterPlaceholder(input.Steps[0])
+	l.StatusMessageLifetime = 0
+	l.Filter = weightedFilter
 	l.Styles.Title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
 	if input.Steps[0].DefaultValue != "" {
 		index := findOptionIndex(options, input.Steps[0].DefaultValue)
@@ -168,8 +190,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(typed, m.keys.Quit):
 			m.quitting = true
 			return m, tea.Quit
+		case key.Matches(typed, m.keys.Next) && !m.isFiltering():
+			m.list.CursorDown()
+			return m, nil
+		case key.Matches(typed, m.keys.Prev) && !m.isFiltering():
+			m.list.CursorUp()
+			return m, nil
 		case key.Matches(typed, m.keys.Back):
-			if m.index > 0 {
+			if m.index > 0 && !m.isFiltering() {
 				m.index--
 				if err := m.setStep(m.index); err != nil {
 					m.err = err
@@ -178,6 +206,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case key.Matches(typed, m.keys.Select):
+			if m.steps[m.index].AllowCustom && m.isFiltering() {
+				custom := strings.TrimSpace(m.list.FilterValue())
+				if custom != "" {
+					m.applySelection(Option{
+						Label:   custom,
+						Details: "custom value",
+						Value:   custom,
+					})
+					if m.index == len(m.steps)-1 {
+						m.done = true
+						return m, tea.Quit
+					}
+					m.index++
+					if err := m.setStep(m.index); err != nil {
+						m.err = err
+						return m, tea.Quit
+					}
+					return m, nil
+				}
+			}
 			if selected, ok := m.list.SelectedItem().(Option); ok {
 				m.applySelection(selected)
 				if m.index == len(m.steps)-1 {
@@ -208,13 +256,19 @@ func (m model) View() string {
 	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(m.help.ShortHelpView([]key.Binding{
 		m.keys.Select,
 		m.keys.Back,
+		m.keys.Next,
+		m.keys.Prev,
 		m.keys.Quit,
 	}))
+	searchHint := lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("search: type to fuzzy filter")
+	matchInfo := lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(m.matchSummary())
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Bold(true).Render(m.title),
 		status,
 		m.list.View(),
+		searchHint,
+		matchInfo,
 		footer,
 	)
 
@@ -293,6 +347,9 @@ func (m *model) setStep(index int) error {
 	m.options = options
 	m.list.Title = m.steps[index].Title
 	m.list.SetItems(toListItems(options))
+	m.list.FilterInput.SetValue("")
+	m.list.FilterInput.Placeholder = filterPlaceholder(m.steps[index])
+	m.list.Filter = weightedFilter
 	m.list.Select(0)
 	if m.steps[index].DefaultValue != "" {
 		defaultIndex := findOptionIndex(options, m.steps[index].DefaultValue)
@@ -332,4 +389,28 @@ func loadStepOptions(step Step, state WorkflowState) ([]Option, error) {
 		return step.Load(state)
 	}
 	return step.Options, nil
+}
+
+func filterPlaceholder(step Step) string {
+	if strings.TrimSpace(step.Placeholder) != "" {
+		return step.Placeholder
+	}
+	return "type to search"
+}
+
+func (m model) isFiltering() bool {
+	return m.list.FilterState() == list.Filtering
+}
+
+func (m model) matchSummary() string {
+	filter := strings.TrimSpace(m.list.FilterValue())
+	count := len(m.list.VisibleItems())
+	if filter == "" {
+		return fmt.Sprintf("%d option(s)", count)
+	}
+	mode := "matches"
+	if m.steps[m.index].AllowCustom {
+		mode = "matches; enter accepts custom text too"
+	}
+	return fmt.Sprintf("%d %s for %q", count, mode, filter)
 }

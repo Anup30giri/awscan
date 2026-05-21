@@ -172,6 +172,16 @@ func buildEC2InstanceStep(ctx context.Context, env *commandEnv, provider ec2prov
 				Label:   label,
 				Details: details,
 				Value:   instance.InstanceID,
+				Meta: map[string]string{
+					"id":       instance.InstanceID,
+					"name":     instance.Name,
+					"private":  instance.PrivateIP,
+					"public":   instance.PublicIP,
+					"platform": instance.Platform,
+					"state":    instance.State,
+					"az":       instance.AvailabilityAZ,
+					"ssm":      fmt.Sprintf("%t", instance.ManagedBySSM),
+				},
 			})
 		}
 		return options, nil

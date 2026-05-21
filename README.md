@@ -78,6 +78,18 @@ awscan ec2 shell \
   --command /bin/bash
 ```
 
+Interactive shell picker supports custom commands too.
+Type in filter box, then press `enter`.
+
+Examples:
+
+```bash
+/bin/sh
+/bin/bash
+/usr/bin/env sh
+python manage.py shell
+```
+
 Tail ECS logs:
 
 ```bash

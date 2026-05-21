@@ -97,6 +97,10 @@ func buildProfileOptions(profiles []internalaws.Profile) []tui.Option {
 			Label:   profile.Name,
 			Details: details,
 			Value:   profile.Name,
+			Meta: map[string]string{
+				"type":   string(profile.Kind),
+				"region": profile.Region,
+			},
 		})
 	}
 	return options
@@ -110,6 +114,9 @@ func buildRegionOptions() []tui.Option {
 			Label:   region,
 			Details: "AWS region",
 			Value:   region,
+			Meta: map[string]string{
+				"region": region,
+			},
 		})
 	}
 	return options
@@ -128,11 +135,13 @@ func serviceTargetOptions() []tui.Option {
 			Label:   "ECS",
 			Details: "Shell or logs for running ECS service/task/container",
 			Value:   "ecs",
+			Meta:    map[string]string{"service": "ecs"},
 		},
 		{
 			Label:   "EC2",
 			Details: "Shell or port forward for running EC2 instance via SSM",
 			Value:   "ec2",
+			Meta:    map[string]string{"service": "ec2"},
 		},
 	}
 }

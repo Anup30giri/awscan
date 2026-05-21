@@ -197,6 +197,12 @@ func buildECSSelectionSteps(ctx context.Context, env *commandEnv, provider ecspr
 					Details: fmt.Sprintf("desired=%d running=%d pending=%d exec=%t",
 						service.DesiredCount, service.RunningCount, service.PendingCount, service.ExecEnabled),
 					Value: service.Arn,
+					Meta: map[string]string{
+						"desired": fmt.Sprintf("%d", service.DesiredCount),
+						"running": fmt.Sprintf("%d", service.RunningCount),
+						"pending": fmt.Sprintf("%d", service.PendingCount),
+						"exec":    fmt.Sprintf("%t", service.ExecEnabled),
+					},
 				})
 			}
 			return options, nil
@@ -225,6 +231,12 @@ func buildECSSelectionSteps(ctx context.Context, env *commandEnv, provider ecspr
 					Details: fmt.Sprintf("%s | desired=%s | launch=%s | started=%s",
 						task.LastStatus, task.DesiredStatus, task.LaunchType, startedAt),
 					Value: task.Arn,
+					Meta: map[string]string{
+						"status":  task.LastStatus,
+						"desired": task.DesiredStatus,
+						"launch":  task.LaunchType,
+						"task":    task.ShortID,
+					},
 				})
 			}
 			return options, nil
@@ -248,6 +260,10 @@ func buildECSSelectionSteps(ctx context.Context, env *commandEnv, provider ecspr
 					Label:   container.Name,
 					Details: fmt.Sprintf("%s | runtime=%s", container.LastStatus, container.RuntimeID),
 					Value:   container.Name,
+					Meta: map[string]string{
+						"status":  container.LastStatus,
+						"runtime": container.RuntimeID,
+					},
 				})
 			}
 			return options, nil
