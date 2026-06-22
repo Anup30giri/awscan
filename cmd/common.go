@@ -8,36 +8,19 @@ import (
 	"strings"
 
 	internalaws "github.com/anupgiri/awscan/internal/aws"
+	appconfig "github.com/anupgiri/awscan/internal/config"
 	"github.com/anupgiri/awscan/internal/tui"
 	"github.com/anupgiri/awscan/internal/tui/screens"
 	"github.com/anupgiri/awscan/pkg/plugin"
 )
 
 func resolveShellRuntime(ctx context.Context, env *commandEnv, root *rootFlags, nonInteractive bool) (internalaws.Runtime, error) {
-	profile := root.profile
-	region := root.region
-
-	if !nonInteractive {
-		selectedProfile, selectedRegion, err := resolveProfileAndRegionInteractively(ctx, env, profile, region)
-		if err != nil {
-			return internalaws.Runtime{}, err
-		}
-		profile = selectedProfile
-		region = selectedRegion
-		root.profile = selectedProfile
-		root.region = selectedRegion
-	}
-
-	runtime, err := env.resolver.Resolve(ctx, internalaws.ResolveOptions{
-		Profile: profile,
-		Region:  region,
-	})
+	runtime, profile, region, err := resolveRuntime(ctx, env, root.profile, root.region, !nonInteractive)
 	if err != nil {
 		return internalaws.Runtime{}, err
 	}
-	if identity, identityErr := internalaws.GetCallerIdentity(ctx, runtime); identityErr == nil {
-		runtime.Identity = identity
-	}
+	root.profile = profile
+	root.region = region
 	return runtime, nil
 }
 
@@ -130,7 +113,8 @@ func buildCommandOptions() []tui.Option {
 	}
 }
 
-func selectDefaultTarget(ctx context.Context, runtime internalaws.Runtime, services []plugin.ServiceRegistration) (string, error) {
+func selectDefaultTarget(ctx context.Context, prefs *appconfig.Preferences, runtime internalaws.Runtime, services []plugin.ServiceRegistration) (string, error) {
+	targetOptions := defaultTargetOptions(prefs, services)
 	output, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
 		Title: "awscan",
 		State: tui.WorkflowState{
@@ -139,13 +123,48 @@ func selectDefaultTarget(ctx context.Context, runtime internalaws.Runtime, servi
 			Account: accountID(runtime),
 		},
 		Steps: []tui.Step{
-			screens.TargetStep(serviceTargetOptionsFromRegistry(services), ""),
+			screens.TargetStep(targetOptions, ""),
 		},
 	})
 	if err != nil {
 		return "", err
 	}
-	return output.State.Target, nil
+	if output.State.Target != "saved" {
+		return output.State.Target, nil
+	}
+
+	savedOptions := savedWorkflowOptions(prefs)
+	savedOutput, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
+		Title: "awscan saved workflows",
+		State: tui.WorkflowState{
+			Profile: runtime.Profile,
+			Region:  runtime.Region,
+			Account: accountID(runtime),
+			Target:  "saved",
+		},
+		Steps: []tui.Step{
+			screens.TargetStep(savedOptions, ""),
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return savedOutput.State.Target, nil
+}
+
+func defaultTargetOptions(prefs *appconfig.Preferences, services []plugin.ServiceRegistration) []tui.Option {
+	targetOptions := serviceTargetOptionsFromRegistry(services)
+	if len(prefs.Saved) == 0 {
+		return targetOptions
+	}
+	return append([]tui.Option{{
+		Label:   "Saved workflows",
+		Details: "Run a named saved workflow without navigating resources again",
+		Value:   "saved",
+		Meta: map[string]string{
+			"service": "saved",
+		},
+	}}, targetOptions...)
 }
 
 func saveGlobalPreferences(env *commandEnv, profile, region string) {

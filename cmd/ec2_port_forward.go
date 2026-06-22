@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 
 	ec2provider "github.com/anupgiri/awscan/internal/providers/ec2"
 	"github.com/anupgiri/awscan/internal/tui"
@@ -43,24 +41,22 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 	}
 
 	provider := ec2provider.New(runtime.Config, env.runner)
-	instanceID := flags.instance
-	remoteHost := firstNonEmpty(flags.remoteHost, env.prefs.Recent.EC2.RemoteHost)
-	localPort := flags.localPort
-	remotePort := flags.remotePort
-	if localPort == 0 {
-		localPort = env.prefs.Recent.EC2.LocalPort
+	req := EC2PortForwardRequest{
+		Profile:    runtime.Profile,
+		Region:     runtime.Region,
+		Instance:   flags.instance,
+		RemoteHost: firstNonEmpty(flags.remoteHost, env.prefs.Recent.EC2.RemoteHost),
+		LocalPort:  flags.localPort,
+		RemotePort: flags.remotePort,
 	}
-	if remotePort == 0 {
-		remotePort = env.prefs.Recent.EC2.RemotePort
+	if req.LocalPort == 0 {
+		req.LocalPort = env.prefs.Recent.EC2.LocalPort
 	}
-	if instanceID != "" {
-		instanceID, err = provider.ResolveInstanceID(ctx, instanceID)
-		if err != nil {
-			return err
-		}
+	if req.RemotePort == 0 {
+		req.RemotePort = env.prefs.Recent.EC2.RemotePort
 	}
 
-	if !flags.nonInteractive && instanceID == "" {
+	if !flags.nonInteractive && req.Instance == "" {
 		adapter := runtimeAdapter{profile: runtime.Profile, region: runtime.Region, account: accountID(runtime)}
 		output, err := tui.RunWorkflow(ctx, tui.WorkflowInput{
 			Title: "awscan ec2 port-forward",
@@ -75,38 +71,13 @@ func runEC2PortForward(ctx context.Context, env *commandEnv, root *rootFlags, fl
 		if err != nil {
 			return err
 		}
-		instanceID = output.State.Instance
+		req.Instance = output.State.Instance
 	}
 
-	if instanceID == "" || flags.localPort <= 0 || flags.remotePort <= 0 {
-		if instanceID == "" || localPort <= 0 || remotePort <= 0 {
+	if req.Instance == "" || flags.localPort <= 0 || flags.remotePort <= 0 {
+		if req.Instance == "" || req.LocalPort <= 0 || req.RemotePort <= 0 {
 			return errors.New("instance, local-port, and remote-port are required")
 		}
 	}
-
-	readiness, err := provider.CheckSessionReadiness(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if !readiness.ManagedBySSM || strings.ToLower(readiness.PingStatus) != "online" {
-		return fmt.Errorf("this EC2 instance is not ready for Session Manager. Ensure SSM Agent is installed, instance is managed by Systems Manager, and IAM role allows SSM")
-	}
-
-	saveGlobalPreferences(env, runtime.Profile, runtime.Region)
-	env.prefs.Recent.EC2.InstanceID = instanceID
-	env.prefs.Recent.EC2.RemoteHost = remoteHost
-	env.prefs.Recent.EC2.LocalPort = localPort
-	env.prefs.Recent.EC2.RemotePort = remotePort
-	if err := env.app.Config.Save(env.prefs); err != nil {
-		return err
-	}
-
-	return provider.StartPortForward(ctx, ec2provider.StartPortForwardInput{
-		Profile:    runtime.Profile,
-		Region:     runtime.Region,
-		InstanceID: instanceID,
-		LocalPort:  localPort,
-		RemotePort: remotePort,
-		RemoteHost: remoteHost,
-	})
+	return executeEC2PortForwardRequest(ctx, env, runtime, provider, req)
 }

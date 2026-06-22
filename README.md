@@ -14,6 +14,7 @@ The MVP focuses on:
 - `awscan ec2 inspect`
 - `awscan ec2 documents`
 - `awscan ec2 port-forward`
+- `awscan saved`
 
 It is designed so ECS is first-class today, with clean seams for future EC2, EKS, logs, SSM, and port-forwarding workflows.
 
@@ -83,6 +84,25 @@ Force ECS service restart:
 
 ```bash
 awscan ecs restart --cluster prod --service api
+```
+
+Save a repetitive workflow:
+
+```bash
+awscan saved add prod-api-shell \
+  --kind ecs-shell \
+  --profile default \
+  --region ap-south-1 \
+  --cluster prod \
+  --service api \
+  --container app \
+  --command /bin/sh
+```
+
+Run it later with one command:
+
+```bash
+awscan saved run prod-api-shell
 ```
 
 Open an interactive EC2 Session Manager shell workflow:
@@ -218,6 +238,15 @@ Example:
 ```yaml
 default_profile: default
 default_region: ap-south-1
+saved:
+  prod-api-shell:
+    kind: ecs-shell
+    profile: default
+    region: ap-south-1
+    cluster: prod
+    service: api
+    container: app
+    command: /bin/sh
 recent:
   ecs:
     cluster: arn:aws:ecs:ap-south-1:123456789012:cluster/prod

@@ -29,6 +29,10 @@ func NewManager() (*Manager, error) {
 	}, nil
 }
 
+func NewManagerForPath(path string) *Manager {
+	return &Manager{path: path}
+}
+
 func (m *Manager) Path() string {
 	return m.path
 }

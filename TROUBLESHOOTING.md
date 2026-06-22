@@ -34,6 +34,12 @@ or:
 aws sso login --profile <profile>
 ```
 
+If the failure happens through a saved workflow, preflight the exact saved target:
+
+```bash
+awscan doctor --saved <name>
+```
+
 ## `login_session` profile is not being consumed by other tools
 
 `awscan` supports this natively by calling:
@@ -67,6 +73,30 @@ Try:
 ```bash
 awscan doctor --profile <profile> --region <region>
 ```
+
+or, for a saved workflow:
+
+```bash
+awscan doctor --saved <name>
+```
+
+## `saved workflow was not found` or `saved workflow is invalid`
+
+Inspect the configured entry:
+
+```bash
+awscan saved list
+awscan saved inspect <name>
+```
+
+Common causes:
+
+- name typo
+- missing `profile` or `region`
+- missing `cluster/service/container` for `ecs-shell`
+- missing `cluster/service` for `ecs-logs`
+- missing `instance` for `ec2-shell`
+- missing `instance/local_port/remote_port` for `ec2-port-forward`
 
 ## `No running tasks found for this service`
 

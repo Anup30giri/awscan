@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -67,6 +68,7 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flags.region, "region", "", "AWS region to use")
 
 	cmd.AddCommand(newDoctorCommand(env, flags))
+	cmd.AddCommand(newSavedCommand(env, flags))
 	for _, service := range services {
 		cmd.AddCommand(service.BuildRoot())
 	}
@@ -76,9 +78,12 @@ func newRootCommand(env *commandEnv) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		target, err := selectDefaultTarget(cmd.Context(), runtime, services)
+		target, err := selectDefaultTarget(cmd.Context(), env.prefs, runtime, services)
 		if err != nil {
 			return err
+		}
+		if strings.HasPrefix(target, "saved:") {
+			return runSavedWorkflowByName(cmd.Context(), env, flags, strings.TrimPrefix(target, "saved:"))
 		}
 		service, err := serviceCommandByID(services, target)
 		if err != nil {

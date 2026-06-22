@@ -79,6 +79,39 @@ func TestWeightedFilterPrefersLabel(t *testing.T) {
 	}
 }
 
+func TestWeightedFilterMatchesHyphenatedRegion(t *testing.T) {
+	t.Parallel()
+
+	targets := []string{
+		"ap-south-1 ap-south-1 AWS region region ap-south-1",
+		"us-east-1 us-east-1 AWS region region us-east-1",
+	}
+
+	ranks := weightedFilter("us-east-1", targets)
+	if len(ranks) == 0 {
+		t.Fatal("weightedFilter() returned no matches")
+	}
+	if ranks[0].Index != 1 {
+		t.Fatalf("first rank index = %d, want 1", ranks[0].Index)
+	}
+}
+
+func TestWeightedFilterMatchesNormalizedRegion(t *testing.T) {
+	t.Parallel()
+
+	targets := []string{
+		"us-east-1 us-east-1 AWS region region us-east-1",
+	}
+
+	ranks := weightedFilter("useast1", targets)
+	if len(ranks) == 0 {
+		t.Fatal("weightedFilter() returned no matches")
+	}
+	if ranks[0].Index != 0 {
+		t.Fatalf("first rank index = %d, want 0", ranks[0].Index)
+	}
+}
+
 func TestMatchSummaryIncludesCustomHint(t *testing.T) {
 	t.Parallel()
 

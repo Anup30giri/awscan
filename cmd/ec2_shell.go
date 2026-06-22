@@ -43,51 +43,30 @@ func runEC2Shell(ctx context.Context, env *commandEnv, root *rootFlags, flags ec
 	}
 
 	provider := ec2provider.New(runtime.Config, env.runner)
-	instanceID := flags.instance
-	if instanceID != "" {
-		instanceID, err = provider.ResolveInstanceID(ctx, instanceID)
-		if err != nil {
-			return err
-		}
+	req := EC2ShellRequest{
+		Profile:  runtime.Profile,
+		Region:   runtime.Region,
+		Instance: flags.instance,
+		Command:  flags.command,
 	}
-	command := flags.command
+	command := req.Command
 
-	if command == "" && instanceID != "" {
-		command = env.prefs.DefaultShells[instanceID]
+	if command == "" && req.Instance != "" {
+		command = env.prefs.DefaultShells[req.Instance]
 	}
+	req.Command = command
 
 	if flags.nonInteractive {
-		if instanceID == "" {
+		if req.Instance == "" {
 			return errors.New("instance must be provided in --non-interactive mode")
 		}
-		if command == "" {
-			command = "/bin/sh"
-		}
 	} else {
-		instanceID, command, err = resolveEC2SelectionsInteractively(ctx, env, provider, runtimeAdapter{profile: runtime.Profile, region: runtime.Region, account: accountID(runtime)}, instanceID, command)
+		req.Instance, req.Command, err = resolveEC2SelectionsInteractively(ctx, env, provider, runtimeAdapter{profile: runtime.Profile, region: runtime.Region, account: accountID(runtime)}, req.Instance, req.Command)
 		if err != nil {
 			return err
 		}
 	}
-
-	readiness, err := provider.CheckSessionReadiness(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if !readiness.ManagedBySSM || strings.ToLower(readiness.PingStatus) != "online" {
-		return fmt.Errorf("this EC2 instance is not ready for Session Manager. Ensure SSM Agent is installed, the instance is managed by Systems Manager, and the IAM role allows SSM")
-	}
-
-	if err := saveEC2Preferences(env, runtime.Profile, runtime.Region, instanceID, command); err != nil {
-		return err
-	}
-
-	return provider.StartSession(ctx, ec2provider.StartSessionInput{
-		Profile:    runtime.Profile,
-		Region:     runtime.Region,
-		InstanceID: instanceID,
-		Command:    command,
-	})
+	return executeEC2ShellRequest(ctx, env, runtime, provider, req)
 }
 
 func resolveEC2SelectionsInteractively(

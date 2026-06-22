@@ -52,47 +52,34 @@ func runECSShell(ctx context.Context, env *commandEnv, root *rootFlags, flags ec
 
 	provider := ecsprovider.New(runtime.Config, runtime.Profile, runtime.Region, env.runner)
 
-	cluster := flags.cluster
-	service := flags.service
-	task := flags.task
-	container := flags.container
-	command := flags.command
+	req := ECSShellRequest{
+		Profile:   runtime.Profile,
+		Region:    runtime.Region,
+		Cluster:   flags.cluster,
+		Service:   flags.service,
+		Task:      flags.task,
+		Container: flags.container,
+		Command:   flags.command,
+	}
+	command := req.Command
+	container := req.Container
 	if command == "" && container != "" {
 		command = env.prefs.DefaultShells[container]
 	}
+	req.Command = command
 
 	if flags.nonInteractive {
-		if cluster == "" || service == "" || task == "" || container == "" {
-			return errors.New("cluster, service, task, and container must be provided in --non-interactive mode")
+		if req.Cluster == "" || req.Service == "" || req.Container == "" {
+			return errors.New("cluster, service, and container must be provided in --non-interactive mode")
 		}
 	} else {
-		cluster, service, task, container, command, err = resolveECSSelectionsInteractively(ctx, env, provider, adapter, cluster, service, task, container, command)
+		req.Cluster, req.Service, req.Task, req.Container, req.Command, err = resolveECSSelectionsInteractively(ctx, env, provider, adapter, req.Cluster, req.Service, req.Task, req.Container, req.Command)
 		if err != nil {
 			return err
 		}
 	}
 
-	taskDetail, err := provider.DescribeTask(ctx, cluster, task)
-	if err != nil {
-		return err
-	}
-
-	readiness, err := provider.CheckExecReadiness(ctx, cluster, service, task)
-	if err != nil {
-		return err
-	}
-	if !readiness.ServiceExecEnabled || !readiness.TaskExecEnabled {
-		return fmt.Errorf("this service/task does not have ECS Exec enabled. Run: aws ecs update-service --cluster %s --service %s --enable-execute-command --force-new-deployment", cluster, service)
-	}
-
-	if _, err := findContainer(taskDetail.Containers, container); err != nil {
-		return err
-	}
-
-	if err := saveECSPreferences(env, runtime.Profile, runtime.Region, cluster, service, container, command); err != nil {
-		return err
-	}
-	return executeECSShellWithFallback(ctx, provider, adapter, cluster, task, container, command)
+	return executeECSShellRequest(ctx, env, runtime, provider, req)
 }
 
 type RuntimeLike interface {

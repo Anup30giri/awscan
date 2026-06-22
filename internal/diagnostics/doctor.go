@@ -36,6 +36,7 @@ type Options struct {
 	Region   string
 	Target   string
 	Check    string
+	Saved    string
 	Cluster  string
 	Service  string
 	Task     string
@@ -143,8 +144,17 @@ func (d *Doctor) runECSChecks(ctx context.Context, report *Report, runtime inter
 		}
 		report.Add("ECS Logs readiness", StatusPass, fmt.Sprintf("%d awslogs target(s) resolved", len(targets)))
 	default:
-		if opts.Task != "" {
-			readiness, err := ecsProvider.CheckExecReadiness(ctx, opts.Cluster, opts.Service, opts.Task)
+		if opts.Check == "shell" || opts.Task != "" {
+			taskArn := opts.Task
+			if taskArn == "" {
+				latest, err := ecsProvider.ResolveLatestTask(ctx, opts.Cluster, opts.Service)
+				if err != nil {
+					report.Add("ECS LatestTask", StatusFail, err.Error())
+					return
+				}
+				taskArn = latest.Arn
+			}
+			readiness, err := ecsProvider.CheckExecReadiness(ctx, opts.Cluster, opts.Service, taskArn)
 			if err != nil {
 				report.Add("ECS Exec readiness", StatusFail, err.Error())
 				return

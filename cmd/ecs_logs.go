@@ -51,46 +51,22 @@ func runECSLogs(ctx context.Context, env *commandEnv, root *rootFlags, flags ecs
 
 	provider := ecsprovider.New(runtime.Config, runtime.Profile, runtime.Region, env.runner)
 	adapter := runtimeAdapter{profile: runtime.Profile, region: runtime.Region, account: accountID(runtime)}
-	cluster, _, task, container, err := resolveECSLogSelections(ctx, env, provider, adapter, flags)
+	req := ECSLogsRequest{
+		Profile:       runtime.Profile,
+		Region:        runtime.Region,
+		Cluster:       flags.cluster,
+		Service:       flags.service,
+		Task:          flags.task,
+		Container:     flags.container,
+		AllContainers: flags.allContainers,
+		Follow:        flags.follow,
+		Since:         flags.since,
+	}
+	req.Cluster, req.Service, req.Task, req.Container, err = resolveECSLogSelections(ctx, env, provider, adapter, flags)
 	if err != nil {
 		return err
 	}
-
-	targets, err := provider.ResolveLogTargets(ctx, cluster, task)
-	if err != nil {
-		return err
-	}
-	if len(targets) == 0 {
-		return fmt.Errorf("selected task does not expose awslogs targets. Check task definition log driver and awslogs-group/awslogs-stream-prefix settings")
-	}
-
-	logGroups := map[string]bool{}
-	var logGroup string
-	streams := []string{}
-	for _, target := range targets {
-		if !flags.allContainers && target.ContainerName != container {
-			continue
-		}
-		logGroup = target.LogGroup
-		logGroups[target.LogGroup] = true
-		streams = append(streams, target.LogStream)
-	}
-	if logGroup == "" || len(streams) == 0 {
-		return fmt.Errorf("no awslogs target found for container %q on selected task", container)
-	}
-	if flags.allContainers && len(logGroups) > 1 {
-		return fmt.Errorf("all-containers mode requires all selected containers to share same CloudWatch log group")
-	}
-
-	saveGlobalPreferences(env, runtime.Profile, runtime.Region)
-	return provider.TailLogs(ctx, ecsprovider.TailLogsInput{
-		Profile:    runtime.Profile,
-		Region:     runtime.Region,
-		LogGroup:   logGroup,
-		LogStreams: streams,
-		Follow:     flags.follow,
-		Since:      flags.since,
-	})
+	return executeECSLogsRequest(ctx, env, runtime, provider, req)
 }
 
 func resolveECSLogSelections(ctx context.Context, env *commandEnv, provider ecsprovider.Provider, runtime runtimeAdapter, flags ecsLogsFlags) (string, string, string, string, error) {
